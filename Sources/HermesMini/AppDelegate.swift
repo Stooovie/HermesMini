@@ -35,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// frozen too and could never log). Both write to /tmp/hermesmini.log.
     private var lastHeartbeat = Date()
     private let heartbeatLock = NSLock()
+    /// Two missed 2s ticks — normal timer jitter (App Nap, one slow frame)
+    /// must not be reported as a blocked main thread.
+    private let stallThreshold: TimeInterval = 4.5
     private var heartbeatTimer: Timer?
     private var watchdogThread: Thread?
 
@@ -47,7 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let gap = now.timeIntervalSince(self.lastHeartbeat)
             self.lastHeartbeat = now
             self.heartbeatLock.unlock()
-            if gap > 2.0 {
+            // The tick is 2s, so a plain "gap > 2.0" fires on every late timer
+            // (App Nap, one slow frame). Only two missed ticks mean a real block.
+            if gap > stallThreshold {
                 hmLog("⚠️ main thread was blocked for \(String(format: "%.1f", gap))s")
             }
         }
@@ -63,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self.heartbeatLock.lock()
                 let gap = Date().timeIntervalSince(self.lastHeartbeat)
                 self.heartbeatLock.unlock()
-                if gap > 2.0 {
+                if gap > stallThreshold {
                     hmLog("⚠️⚠️ MAIN THREAD DEADLOCKED for \(String(format: "%.1f", gap))s (background watchdog)")
                 }
             }
